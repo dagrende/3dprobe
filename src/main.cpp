@@ -26,16 +26,17 @@ void loop() {
   y += encoderChange(digitalRead(4), digitalRead(5), prevSwitches[1]);
   z += encoderChange(digitalRead(6), digitalRead(7), prevSwitches[2]);
 
-    long t = millis();
-    if (t > outTime + OUT_INTERVAL_MS) {
-      outTime = t;
-      Serial.print(x);
-      Serial.print(", ");
-      Serial.print(y);
-      Serial.print(", ");
-      Serial.print(z);
-      Serial.print("\n");
-    }
+  // print x, y, z each second
+  long t = millis();
+  if (t > outTime + OUT_INTERVAL_MS) {
+    outTime = t;
+    Serial.print(x);
+    Serial.print(", ");
+    Serial.print(y);
+    Serial.print(", ");
+    Serial.print(z);
+    Serial.print("\n");
+  }
 }
 
 // call continously with the two phases A, B of the quadrature encoder
