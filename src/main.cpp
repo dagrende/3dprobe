@@ -21,21 +21,29 @@ void setup() {
 
 char prevSwitches[3] = {-1, -1, -1};
 
+void printCoords() {
+  Serial.print(x);
+  Serial.print(", ");
+  Serial.print(y);
+  Serial.print(", ");
+  Serial.print(z);
+  Serial.print("\n");
+}
+
 void loop() {
   x += encoderChange(digitalRead(2), digitalRead(3), prevSwitches[0]);
   y += encoderChange(digitalRead(4), digitalRead(5), prevSwitches[1]);
   z += encoderChange(digitalRead(6), digitalRead(7), prevSwitches[2]);
 
   // print x, y, z each second
-  long t = millis();
-  if (t > outTime + OUT_INTERVAL_MS) {
-    outTime = t;
-    Serial.print(x);
-    Serial.print(", ");
-    Serial.print(y);
-    Serial.print(", ");
-    Serial.print(z);
-    Serial.print("\n");
+  // long t = millis();
+  // if (t > outTime + OUT_INTERVAL_MS) {
+  //   outTime = t;
+  // }
+
+  if (Serial.available() > 0) {
+    printCoords();
+    Serial.read();
   }
 }
 
