@@ -85,6 +85,9 @@ void printRawAngles() {
 }
 
 void uiTask(void *parameter) {
+  Serial.print("ui core ");
+  Serial.println(xPortGetCoreID());
+
   while (1) {
     if (Serial.available() > 0) {
       char ch = Serial.read();
@@ -135,6 +138,9 @@ void setup() {
 
   w = v = u = 0;
 
+  Serial.print("arduino core ");
+  Serial.println(xPortGetCoreID());
+
   xTaskCreatePinnedToCore(
     uiTask,    /* Task function. */
     "uiTask",  /* name of task. */
@@ -142,7 +148,5 @@ void setup() {
     NULL,           /* parameter of the task */
     1,              /* priority of the task */
     &decoderTask,   /* Task handle to keep track of created task */
-    1);             /* Core */
-
-  Serial.println("ready!!");
+    0);             /* Core */
 }
