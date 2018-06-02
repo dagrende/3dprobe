@@ -24,9 +24,9 @@ const static int changeTable[4][4] = {
 
 TaskHandle_t decoderTask;
 
-long int u;   // angle between vertical pillar and arm b
-long int v;   // angle between arm b and arm c
-long int w;   // rotation around vertical pillar
+volatile long int u;   // angle between vertical pillar and arm b
+volatile long int v;   // angle between arm b and arm c
+volatile long int w;   // rotation around vertical pillar
 
 esp_err_t show_esp_error(const char *title, esp_err_t result) {
   if (result != ESP_OK) {
@@ -44,67 +44,15 @@ esp_err_t show_esp_error(const char *title, esp_err_t result) {
   return result;
 }
 
-void decoderLoop(void *parameter) {
-  unsigned int prevBits = *GPIOP;
-  unsigned int bits;
-  int change;
-  int i;
-
-  while (1) {
-    for (i = 0; i < 1000000; i++) {
-      bits = *GPIOP;
-      w += changeTable[get2bits(xPhA, prevBits)][get2bits(xPhA, bits)];
-      v += changeTable[get2bits(yPhA, prevBits)][get2bits(yPhA, bits)];
-      u += changeTable[get2bits(zPhA, prevBits)][get2bits(zPhA, bits)];
-      prevBits = bits;
-    }
-    delay(1); // have to do this to keep the watchdog on the mat
-  }
-}
-
-
-
-void setup() {
-  WiFi.mode(WIFI_OFF);
-  btStop();
-
-  Serial.begin(115200);
-  while (!Serial) ;
-
-  pinMode(xPhA, INPUT);
-  pinMode(xPhB, INPUT);
-  pinMode(yPhA, INPUT);
-  pinMode(yPhB, INPUT);
-  pinMode(zPhA, INPUT);
-  pinMode(zPhB, INPUT);
-  pinMode(16, OUTPUT);
-
-  digitalWrite(16, 0);  // 1 enable encoder inputs, 0 disable inputs and let esp32 pins float
-
-  w = v = u = 0;
-
-  xTaskCreatePinnedToCore(
-    decoderLoop,    /* Task function. */
-    "decoderTask",  /* name of task. */
-    1000,           /* Stack size of task */
-    NULL,           /* parameter of the task */
-    1,              /* priority of the task */
-    &decoderTask,   /* Task handle to keep track of created task */
-    0);             /* Core */
-
-  Serial.println("ready!!");
-}
-
 typedef struct {
   float x, y, z;
 } Point3D;
 
-
 // measure
-const int revSteps = 120000;
-const int a = 200;
-const int b = 200;
-const int c = 200;
+const int revSteps = 120000;   // encoder steps per revolution
+const int a = 200;  // pillar length [mm]
+const int b = 200;  // arm b length [mm]
+const int c = 200;  // arm c length [mm]
 const float uZero = 90;
 const float vZero = 90;
 const float wZero = 0;
@@ -128,9 +76,73 @@ void printCoords() {
   Serial.println(p.z);
 }
 
-void loop() {
-  if (Serial.available() > 0) {
-    printCoords();
-    Serial.read();
+void printRawAngles() {
+  Serial.print(u);
+  Serial.print(", ");
+  Serial.print(v);
+  Serial.print(", ");
+  Serial.println(w);
+}
+
+void uiTask(void *parameter) {
+  while (1) {
+    if (Serial.available() > 0) {
+      char ch = Serial.read();
+      if (ch == 'p') {
+        printCoords();
+      } else if (ch == 'a') {
+        printRawAngles();
+      } else if (ch == 'c') {
+        w = v = u = 0;
+      }
+    }
+
+    delay(100);
   }
+}
+
+void loop() {
+  unsigned int prevBits = *GPIOP;
+  unsigned int bits;
+  int change;
+  int i;
+
+  while (1) {
+    bits = *GPIOP;
+    w += changeTable[get2bits(xPhA, prevBits)][get2bits(xPhA, bits)];
+    v += changeTable[get2bits(yPhA, prevBits)][get2bits(yPhA, bits)];
+    u += changeTable[get2bits(zPhA, prevBits)][get2bits(zPhA, bits)];
+    prevBits = bits;
+  }
+}
+
+void setup() {
+  WiFi.mode(WIFI_OFF);
+  btStop();
+
+  Serial.begin(115200);
+  while (!Serial) ;
+
+  pinMode(xPhA, INPUT);
+  pinMode(xPhB, INPUT);
+  pinMode(yPhA, INPUT);
+  pinMode(yPhB, INPUT);
+  pinMode(zPhA, INPUT);
+  pinMode(zPhB, INPUT);
+  pinMode(16, OUTPUT);
+
+  digitalWrite(16, 0);  // 1 enable encoder inputs, 0 disable inputs and let esp32 pins float
+
+  w = v = u = 0;
+
+  xTaskCreatePinnedToCore(
+    uiTask,    /* Task function. */
+    "uiTask",  /* name of task. */
+    1000,           /* Stack size of task */
+    NULL,           /* parameter of the task */
+    1,              /* priority of the task */
+    &decoderTask,   /* Task handle to keep track of created task */
+    1);             /* Core */
+
+  Serial.println("ready!!");
 }
