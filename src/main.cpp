@@ -4,6 +4,8 @@
 #include "config.h"
 #include "esp_task_wdt.h"
 #include <math.h>
+#include "SSD1306.h"
+
 
 const char uPhA = 25;   // x encoder
 const char uPhB = 26;
@@ -11,6 +13,8 @@ const char vPhA = 12;
 const char vPhB = 13;
 const char wPhA = 14;
 const char wPhB = 15;
+const char encoderEnable = 0;
+
 #define get2bits(startBit, value) ((unsigned char)((value >> startBit) & 3))
 const volatile int* GPIOP = (volatile int *)GPIO_IN_REG;
 
@@ -22,7 +26,8 @@ const static int changeTable[4][4] = {
   { 0, -1,  1,  0}  //11
 };
 
-TaskHandle_t decoderTask;
+TaskHandle_t uiTaskHandle;
+TaskHandle_t displayTaskHandle;
 
 volatile long int uRaw;   // angle between vertical pillar and arm b
 volatile long int vRaw;   // angle between arm b and arm c
@@ -56,8 +61,17 @@ void calcXYZ(Point3D &p, long int uRaw, long int vRaw, long int wRaw) {
   p.z = a - b * cos(u) + c * cos(u + v);
 }
 
+// void display_text(String text){
+//   display.setColor(WHITE);
+//   //display.setFont(Dialog_plain_40);
+//   display.setTextAlignment(TEXT_ALIGN_CENTER);
+//   display.drawString(64, 15, text);
+//   display.display();
+// }
+
 void printCoords() {
   Point3D p;
+
   calcXYZ(p, uRaw, vRaw, wRaw);
 
   Serial.print(p.x);
@@ -102,25 +116,72 @@ void uiTask(void *parameter) {
   }
 }
 
+void displayTask(void *parameter) {
+  SSD1306 display(0x3c, 5, 4);
+  char buf[100];
+  Point3D p;
+
+  display.init();
+  display.clear();
+  // display_text("ready.");
+  display.setColor(WHITE);
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  display.setFont(ArialMT_Plain_16);
+
+  while (1) {
+    display.clear();
+
+    calcXYZ(p, uRaw, vRaw, wRaw);
+
+    int yPos = 5;
+    sprintf(buf, "%5.1f", p.x);
+    display.drawString(30, yPos, "X");
+    display.drawString(90, yPos, buf);
+    yPos += 15;
+    sprintf(buf, "%5.1f", p.y);
+    display.drawString(30, yPos, "Y");
+    display.drawString(90, yPos, buf);
+    yPos += 15;
+    sprintf(buf, "%5.1f", p.z);
+    display.drawString(30, yPos, "Z");
+    display.drawString(90, yPos, buf);
+
+    display.display();
+
+    delay(200);
+  }
+
+}
+
 void loop() {
   unsigned int prevBits = *GPIOP;
   unsigned int bits;
   int change;
   int i;
 
+  delay(2000);
+  pinMode(0, OUTPUT);
+  digitalWrite(0, 0);
+
   while (1) {
-    // digitalWrite(2, 1);
     bits = *GPIOP;
     uRaw += changeTable[get2bits(uPhA, prevBits)][get2bits(uPhA, bits)];
     vRaw += changeTable[get2bits(vPhA, prevBits)][get2bits(vPhA, bits)];
     wRaw += changeTable[get2bits(wPhA, prevBits)][get2bits(wPhA, bits)];
     prevBits = bits;
-    // digitalWrite(2, 0);
     sampleCount++;
   }
 }
 
 void setup() {
+  pinMode(0,INPUT);
+  digitalWrite(0,HIGH);
+
+  pinMode(16,OUTPUT);
+  digitalWrite(16, LOW);    // set GPIO16 low to reset OLED
+  delay(50);
+  digitalWrite(16, HIGH); // while OLED is running, must set GPIO16 in high
+
   WiFi.mode(WIFI_OFF);
   btStop();
 
@@ -133,15 +194,16 @@ void setup() {
   pinMode(vPhB, INPUT);
   pinMode(wPhA, INPUT);
   pinMode(wPhB, INPUT);
-  pinMode(16, OUTPUT);
-  pinMode(2, OUTPUT);
-
-  digitalWrite(16, 0);  // 1 enable encoder inputs, 0 disable inputs and let esp32 pins float
-
-  wRaw = vRaw = uRaw = 0;
+//  pinMode(encoderEnable, OUTPUT);
 
   Serial.print("arduino core ");
   Serial.println(xPortGetCoreID());
+
+
+//  digitalWrite(encoderEnable, 0);  // 1 enable encoder inputs, 0 disable inputs and let esp32 pins float
+  wRaw = vRaw = uRaw = 0;
+
+  // displayTask(NULL);
 
   xTaskCreatePinnedToCore(
     uiTask,    /* Task function. */
@@ -149,6 +211,15 @@ void setup() {
     1000,           /* Stack size of task */
     NULL,           /* parameter of the task */
     1,              /* priority of the task */
-    &decoderTask,   /* Task handle to keep track of created task */
+    &uiTaskHandle,   /* Task handle to keep track of created task */
+    0);             /* Core */
+
+  xTaskCreatePinnedToCore(
+    displayTask,    /* Task function. */
+    "displayTask",  /* name of task. */
+    5000,           /* Stack size of task */
+    NULL,           /* parameter of the task */
+    1,              /* priority of the task */
+    &displayTaskHandle,   /* Task handle to keep track of created task */
     0);             /* Core */
 }
