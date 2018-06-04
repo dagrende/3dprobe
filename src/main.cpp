@@ -6,7 +6,6 @@
 #include <math.h>
 #include "SSD1306.h"
 
-
 const char uPhA = 25;   // x encoder
 const char uPhB = 26;
 const char vPhA = 12;
@@ -26,6 +25,19 @@ const static int changeTable[4][4] = {
   { 0, -1,  1,  0}  //11
 };
 
+// measures and angles
+const int revSteps = 120000;    // encoder steps per revolution
+const int a = 255 + 6.7;        // pillar base to u rotational center [mm]
+const int b = 212;              // arm b length [mm]
+const int c = 232 - 17.13 / 2;  // arm c length [mm]
+const float uZero = 90 * M_PI / 180;
+const float vZero = 90 * M_PI / 180;
+const float wZero = 0;
+
+typedef struct {
+  float x, y, z;
+} Point3D;
+
 TaskHandle_t uiTaskHandle;
 TaskHandle_t displayTaskHandle;
 
@@ -33,27 +45,17 @@ volatile long int uRaw;   // angle between vertical pillar and arm b
 volatile long int vRaw;   // angle between arm b and arm c
 volatile long int wRaw;   // rotation around vertical pillar
 
+// vars for calculating sample frequency
 volatile long sampleCount = 0;
 long sampleMillis = 0;
 
-typedef struct {
-  float x, y, z;
-} Point3D;
-
-// measure
-const int revSteps = 120000;   // encoder steps per revolution
-const int a = 255 + 6.7;  // pillar length [mm]
-const int b = 212;  // arm b length [mm]
-const int c = 232 - 17.13 / 2;  // arm c length [mm]
-const float uZero = 90 * M_PI / 180;
-const float vZero = 90 * M_PI / 180;
-const float wZero = 0;
-
+// calculate p, cartesian coordinates from raw encoder angles
 void calcXYZ(Point3D &p, long int uRaw, long int vRaw, long int wRaw) {
   // get angles in radians
   float u = (uRaw * M_PI * 2 / revSteps) + uZero;
   float v = (vRaw * M_PI * 2 / revSteps) + vZero;
   float w = (wRaw * M_PI * 2 / revSteps) + wZero;
+
   // get cartesian coordinates
   float r = b * sin(u) - c * sin(u + v);
   p.x = r * sin(w);
@@ -61,14 +63,7 @@ void calcXYZ(Point3D &p, long int uRaw, long int vRaw, long int wRaw) {
   p.z = a - b * cos(u) + c * cos(u + v);
 }
 
-// void display_text(String text){
-//   display.setColor(WHITE);
-//   //display.setFont(Dialog_plain_40);
-//   display.setTextAlignment(TEXT_ALIGN_CENTER);
-//   display.drawString(64, 15, text);
-//   display.display();
-// }
-
+// print cartesian coodinates from raw encoder angles
 void printCoords() {
   Point3D p;
 
@@ -81,6 +76,7 @@ void printCoords() {
   Serial.println(p.z);
 }
 
+// print raw encoder angles
 void printRawAngles() {
   Serial.print(uRaw);
   Serial.print(", ");
@@ -89,20 +85,18 @@ void printRawAngles() {
   Serial.println(wRaw);
 }
 
+// read command char from serial, execute command and print to serial
 void uiTask(void *parameter) {
-  Serial.print("ui core ");
-  Serial.println(xPortGetCoreID());
-
   while (1) {
     if (Serial.available() > 0) {
       char ch = Serial.read();
-      if (ch == 'p') {
+      if (ch == 'p') {        // print current position
         printCoords();
-      } else if (ch == 'a') {
+      } else if (ch == 'a') { // print angles
         printRawAngles();
-      } else if (ch == 'c') {
+      } else if (ch == 'c') { // clear raw angles
         wRaw = vRaw = uRaw = 0;
-      } else if (ch == 's') {
+      } else if (ch == 's') { // print average sample frequency
         long now = millis();
         long elapsedTime = now - sampleMillis;
         sampleMillis = now;
@@ -116,43 +110,44 @@ void uiTask(void *parameter) {
   }
 }
 
+// continously display current x, y, z position
 void displayTask(void *parameter) {
   SSD1306 display(0x3c, 5, 4);
   char buf[100];
   Point3D p;
 
   display.init();
+  display.flipScreenVertically();
   display.clear();
-  // display_text("ready.");
   display.setColor(WHITE);
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.setFont(ArialMT_Plain_16);
+  display.setFont(ArialMT_Plain_24);
 
   while (1) {
     display.clear();
 
     calcXYZ(p, uRaw, vRaw, wRaw);
 
-    int yPos = 5;
+    int yPos = 0;
     sprintf(buf, "%5.1f", p.x);
-    display.drawString(30, yPos, "X");
-    display.drawString(90, yPos, buf);
-    yPos += 15;
+    display.drawString(25, yPos, "X");
+    display.drawString(110, yPos, buf);
+    yPos += 20;
     sprintf(buf, "%5.1f", p.y);
-    display.drawString(30, yPos, "Y");
-    display.drawString(90, yPos, buf);
-    yPos += 15;
+    display.drawString(25, yPos, "Y");
+    display.drawString(110, yPos, buf);
+    yPos += 20;
     sprintf(buf, "%5.1f", p.z);
-    display.drawString(30, yPos, "Z");
-    display.drawString(90, yPos, buf);
+    display.drawString(25, yPos, "Z");
+    display.drawString(110, yPos, buf);
 
     display.display();
 
     delay(200);
   }
-
 }
 
+// continously sample encoder phase signals and step uRaw, vRaw, wRaw up/down
 void loop() {
   unsigned int prevBits = *GPIOP;
   unsigned int bits;
@@ -160,8 +155,9 @@ void loop() {
   int i;
 
   delay(2000);
+
   pinMode(0, OUTPUT);
-  digitalWrite(0, 0);
+  digitalWrite(0, 0); // enable encoder signal input buffer
 
   while (1) {
     bits = *GPIOP;
@@ -173,7 +169,9 @@ void loop() {
   }
 }
 
+
 void setup() {
+  // enable display
   pinMode(0,INPUT);
   digitalWrite(0,HIGH);
 
@@ -182,6 +180,7 @@ void setup() {
   delay(50);
   digitalWrite(16, HIGH); // while OLED is running, must set GPIO16 in high
 
+  // disable WiFi and BLE
   WiFi.mode(WIFI_OFF);
   btStop();
 
@@ -194,17 +193,10 @@ void setup() {
   pinMode(vPhB, INPUT);
   pinMode(wPhA, INPUT);
   pinMode(wPhB, INPUT);
-//  pinMode(encoderEnable, OUTPUT);
 
-  Serial.print("arduino core ");
-  Serial.println(xPortGetCoreID());
-
-
-//  digitalWrite(encoderEnable, 0);  // 1 enable encoder inputs, 0 disable inputs and let esp32 pins float
   wRaw = vRaw = uRaw = 0;
 
-  // displayTask(NULL);
-
+  // start ui task
   xTaskCreatePinnedToCore(
     uiTask,    /* Task function. */
     "uiTask",  /* name of task. */
@@ -214,6 +206,7 @@ void setup() {
     &uiTaskHandle,   /* Task handle to keep track of created task */
     0);             /* Core */
 
+  // start display task
   xTaskCreatePinnedToCore(
     displayTask,    /* Task function. */
     "displayTask",  /* name of task. */
